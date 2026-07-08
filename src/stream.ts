@@ -34,7 +34,6 @@ import {
   isTooBigError,
   MAX_RETRY_DELAY,
 } from "./retry.js";
-import { ThinkingTagParser } from "./thinking-parser.js";
 import { countTokens } from "./tokenizer.js";
 import {
   buildHistory,
@@ -44,6 +43,7 @@ import {
   getContentText,
   type KiroHistoryEntry,
   type KiroImage,
+  type KiroReasoningContent,
   type KiroToolResult,
   type KiroToolSpec,
   type KiroUserInputMessage,
@@ -197,6 +197,40 @@ function emitToolCall(
   return true;
 }
 
+function mapKiroReasoningEffort(reasoning?: string): string | undefined {
+  switch (reasoning) {
+    case "minimal":
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    case "high":
+      return "high";
+    case "xhigh":
+      return "xhigh";
+    default:
+      return undefined;
+  }
+}
+
+function getAdditionalModelRequestFields(kiroModelId: string, reasoning?: string): Record<string, unknown> | undefined {
+  const effort = mapKiroReasoningEffort(reasoning);
+  if (!effort) return undefined;
+  if (kiroModelId.startsWith("openai-gpt-")) return { reasoning: { effort } };
+  if (kiroModelId.startsWith("claude-")) {
+    return { thinking: { type: "adaptive", display: "summarized" }, output_config: { effort } };
+  }
+  return undefined;
+}
+
+function buildReasoningContent(block: { thinking?: string; thinkingSignature?: string; redactedContent?: string }): KiroReasoningContent | undefined {
+  if (block.redactedContent) return { redactedContent: block.redactedContent };
+  if (block.thinking || block.thinkingSignature) {
+    return { reasoningText: { text: block.thinking || "", ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}) } };
+  }
+  return undefined;
+}
+
 export function streamKiro(
   model: Model<Api>,
   context: Context,
@@ -248,7 +282,12 @@ export function streamKiro(
       }
 
       const kiroModelId = resolveKiroModel(model.id);
-      const thinkingEnabled = !!options?.reasoning || model.reasoning;
+      const optionReasoning = options?.reasoning as string | undefined;
+      const reasoningLevel = optionReasoning === "off" ? undefined : optionReasoning;
+      const additionalModelRequestFields = model.reasoning
+        ? getAdditionalModelRequestFields(kiroModelId, reasoningLevel)
+        : undefined;
+      const thinkingEnabled = !!additionalModelRequestFields;
       debugLog("request.init", {
         endpoint,
         model: model.id,
@@ -256,6 +295,7 @@ export function streamKiro(
         contextWindow: model.contextWindow,
         thinkingEnabled,
         reasoning: options?.reasoning,
+        additionalModelRequestFields,
         messageCount: context.messages.length,
         toolCount: context.tools?.length ?? 0,
         hasSystemPrompt: !!context.systemPrompt,
@@ -263,17 +303,6 @@ export function streamKiro(
         sessionId: options?.sessionId,
       });
       let systemPrompt = context.systemPrompt ?? "";
-      if (thinkingEnabled) {
-        const budget =
-          options?.reasoning === "xhigh"
-            ? 50000
-            : options?.reasoning === "high"
-              ? 30000
-              : options?.reasoning === "medium"
-                ? 20000
-                : 10000;
-        systemPrompt = `<thinking_mode>enabled</thinking_mode><max_thinking_length>${budget}</max_thinking_length>${systemPrompt ? `\n${systemPrompt}` : ""}`;
-      }
       let retryCount = 0;
       const maxRetries = 3;
       const conversationId = options?.sessionId ?? crypto.randomUUID();
@@ -299,12 +328,13 @@ export function streamKiro(
         if (firstMsg?.role === "assistant") {
           const am = firstMsg as AssistantMessage;
           let armContent = "";
+          let armReasoningContent: KiroReasoningContent | undefined;
           const armToolUses: Array<{ name: string; toolUseId: string; input: Record<string, unknown> }> = [];
           if (Array.isArray(am.content))
             for (const b of am.content) {
               if (b.type === "text") armContent += (b as TextContent).text;
               else if (b.type === "thinking")
-                armContent = `<thinking>${(b as unknown as { thinking: string }).thinking}</thinking>\n\n${armContent}`;
+                armReasoningContent = buildReasoningContent(b as unknown as { thinking?: string; thinkingSignature?: string; redactedContent?: string });
               else if (b.type === "toolCall") {
                 const tc = b as ToolCall;
                 armToolUses.push({
@@ -323,11 +353,13 @@ export function streamKiro(
             if (history.length > 0 && !lastEntryForArm?.userInputMessage && prevArm) {
               // Merge into previous assistant message to maintain alternation without synthetic padding
               prevArm.content += `\n\n${armContent}`;
+              if (armReasoningContent) prevArm.reasoningContent = armReasoningContent;
               if (armToolUses.length > 0) prevArm.toolUses = [...(prevArm.toolUses || []), ...armToolUses];
             } else {
               history.push({
                 assistantResponseMessage: {
                   content: armContent,
+                  ...(armReasoningContent ? { reasoningContent: armReasoningContent } : {}),
                   ...(armToolUses.length > 0 ? { toolUses: armToolUses } : {}),
                 },
               });
@@ -415,6 +447,7 @@ export function streamKiro(
             ...(history.length > 0 ? { history } : {}),
           },
           ...(profileArn ? { profileArn } : {}),
+          ...(additionalModelRequestFields ? { additionalModelRequestFields } : {}),
           agentMode: "vibe",
         };
         let response!: Response;
@@ -520,8 +553,9 @@ export function streamKiro(
         let lastContentData = "";
         let usageEvent: { inputTokens?: number; outputTokens?: number } | null = null;
         let receivedContextUsage = false;
-        const thinkingParser = thinkingEnabled ? new ThinkingTagParser(output, stream) : null;
         let textBlockIndex: number | null = null;
+        let reasoningBlockIndex: number | null = null;
+        let reasoningOpen = false;
         let emittedToolCalls = 0;
         let sawAnyToolCalls = false;
         let currentToolCall: KiroToolCallState | null = null;
@@ -529,6 +563,37 @@ export function streamKiro(
           if (!currentToolCall) return;
           if (emitToolCall(currentToolCall, output, stream)) emittedToolCalls++;
           currentToolCall = null;
+        };
+        const endReasoning = () => {
+          if (!reasoningOpen || reasoningBlockIndex === null) return;
+          const block = output.content[reasoningBlockIndex] as unknown as { thinking: string };
+          stream.push({ type: "thinking_end", contentIndex: reasoningBlockIndex, content: block.thinking, partial: output });
+          reasoningOpen = false;
+        };
+        const emitReasoning = (data: { text: string; signature?: string; redactedContent?: string }) => {
+          const delta = data.text ?? "";
+          if (!delta && !data.signature && !data.redactedContent) return;
+          if (reasoningBlockIndex === null) {
+            reasoningBlockIndex = output.content.length;
+            output.content.push({
+              type: "thinking",
+              thinking: "",
+              ...(data.signature ? { thinkingSignature: data.signature } : {}),
+              ...(data.redactedContent ? { redactedContent: data.redactedContent } : {}),
+            } as unknown as TextContent);
+          }
+          const block = output.content[reasoningBlockIndex] as unknown as { thinking: string; thinkingSignature?: string; redactedContent?: string };
+          if (data.signature) block.thinkingSignature = data.signature;
+          if (data.redactedContent) block.redactedContent = data.redactedContent;
+          if (delta) {
+            if (!reasoningOpen) {
+              stream.push({ type: "thinking_start", contentIndex: reasoningBlockIndex, partial: output });
+              reasoningOpen = true;
+            }
+            block.thinking += delta;
+            totalContent += delta;
+            stream.push({ type: "thinking_delta", contentIndex: reasoningBlockIndex, delta, partial: output });
+          }
         };
         const IDLE_TIMEOUT = 300_000;
         let idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -603,11 +668,16 @@ export function streamKiro(
           const { done, value } = iterResult;
           if (done) break;
           resetIdle();
+          const eventType = Object.keys(value as Record<string, unknown>)[0];
           const eventPayload = Object.values(value as Record<string, unknown>)[0] as Record<string, unknown>;
-          const event = parseKiroEvent(eventPayload);
+          const event = parseKiroEvent(eventPayload, eventType);
           if (!event) continue;
           if (debugEnabled()) debugLog("stream.events", [event]);
           switch (event.type) {
+            case "reasoning": {
+              emitReasoning(event.data);
+              break;
+            }
             case "contextUsage": {
               const pct = event.data.contextUsagePercentage;
               output.usage.input = Math.round((pct / 100) * model.contextWindow);
@@ -616,23 +686,21 @@ export function streamKiro(
               break;
             }
             case "content": {
+              endReasoning();
               if (event.data === lastContentData) continue;
               lastContentData = event.data;
               totalContent += event.data;
-              if (thinkingParser) {
-                thinkingParser.processChunk(event.data);
-              } else {
-                if (textBlockIndex === null) {
-                  textBlockIndex = output.content.length;
-                  output.content.push({ type: "text", text: "" });
-                  stream.push({ type: "text_start", contentIndex: textBlockIndex, partial: output });
-                }
-                (output.content[textBlockIndex] as TextContent).text += event.data;
-                stream.push({ type: "text_delta", contentIndex: textBlockIndex, delta: event.data, partial: output });
+if (textBlockIndex === null) {
+                textBlockIndex = output.content.length;
+                output.content.push({ type: "text", text: "" });
+                stream.push({ type: "text_start", contentIndex: textBlockIndex, partial: output });
               }
+              (output.content[textBlockIndex] as TextContent).text += event.data;
+              stream.push({ type: "text_delta", contentIndex: textBlockIndex, delta: event.data, partial: output });
               break;
             }
             case "toolUse": {
+              endReasoning();
               const tc = event.data;
               sawAnyToolCalls = true;
               if (!currentToolCall || currentToolCall.toolUseId !== tc.toolUseId) {
@@ -645,11 +713,13 @@ export function streamKiro(
               break;
             }
             case "toolUseInput": {
+              endReasoning();
               if (currentToolCall) currentToolCall.input += event.data.input || "";
               if (event.data.input) totalContent += event.data.input;
               break;
             }
             case "toolUseStop": {
+              endReasoning();
               if (event.data.stop) flushToolCall();
               break;
             }
@@ -658,6 +728,7 @@ export function streamKiro(
               break;
             }
             case "error": {
+              endReasoning();
               const errMsg = event.data.message ? `${event.data.error}: ${event.data.message}` : event.data.error;
               streamError = errMsg;
               void bodyReader.cancel().catch(() => {});
@@ -668,6 +739,7 @@ export function streamKiro(
           if (streamError) break;
         }
         if (idleTimer) clearTimeout(idleTimer);
+        endReasoning();
         if (firstTokenTimedOut || idleCancelled || streamError) {
           // Timed out or received error mid-stream: retry with backoff
           if (retryCount < maxRetries) {
@@ -683,10 +755,6 @@ export function streamKiro(
         }
         if (currentToolCall && emitToolCall(currentToolCall, output, stream)) {
           emittedToolCalls++;
-        }
-        if (thinkingParser) {
-          thinkingParser.finalize();
-          textBlockIndex = thinkingParser.getTextBlockIndex();
         }
         // Fallback: extract bracket-style tool calls from content if no native tool calls
         if (!sawAnyToolCalls && textBlockIndex !== null) {

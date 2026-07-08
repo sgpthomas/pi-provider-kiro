@@ -2,6 +2,7 @@
 // ABOUTME: Binary framing is handled by @smithy/core EventStreamMarshaller in stream.ts.
 
 export type KiroStreamEvent =
+  | { type: "reasoning"; data: { text: string; signature?: string; redactedContent?: string } }
   | { type: "content"; data: string }
   | { type: "toolUse"; data: { name: string; toolUseId: string; input: string; stop?: boolean } }
   | { type: "toolUseInput"; data: { input: string } }
@@ -11,7 +12,28 @@ export type KiroStreamEvent =
   | { type: "usage"; data: { inputTokens?: number; outputTokens?: number } }
   | { type: "error"; data: { error: string; message?: string } };
 
-export function parseKiroEvent(parsed: Record<string, unknown>): KiroStreamEvent | null {
+export function parseKiroEvent(parsed: Record<string, unknown>, eventType?: string): KiroStreamEvent | null {
+  const normalizedEventType = typeof eventType === "string" ? eventType.toLowerCase() : "";
+  if (normalizedEventType.includes("reasoningcontent")) {
+    return {
+      type: "reasoning",
+      data: {
+        text: (parsed.text as string | undefined) ?? "",
+        signature: parsed.signature as string | undefined,
+        redactedContent: parsed.redactedContent as string | undefined,
+      },
+    };
+  }
+  if (parsed.text !== undefined && (parsed.signature !== undefined || parsed.redactedContent !== undefined) && parsed.content === undefined) {
+    return {
+      type: "reasoning",
+      data: {
+        text: (parsed.text as string | undefined) ?? "",
+        signature: parsed.signature as string | undefined,
+        redactedContent: parsed.redactedContent as string | undefined,
+      },
+    };
+  }
   if (parsed.content !== undefined) return { type: "content", data: parsed.content as string };
   if (parsed.name && parsed.toolUseId) {
     const input =

@@ -35,8 +35,13 @@ export interface KiroUserInputMessage {
   images?: KiroImage[];
   userInputMessageContext?: { toolResults?: KiroToolResult[]; tools?: KiroToolSpec[] };
 }
+export interface KiroReasoningContent {
+  reasoningText?: { text: string; signature?: string };
+  redactedContent?: string;
+}
 export interface KiroAssistantResponseMessage {
   content: string;
+  reasoningContent?: KiroReasoningContent;
   toolUses?: KiroToolUse[];
 }
 export interface KiroHistoryEntry {
