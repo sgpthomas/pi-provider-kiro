@@ -11,6 +11,7 @@ export const KIRO_MODEL_IDS = new Set([
   "claude-opus-4.8",
   "claude-opus-4.7",
   "claude-opus-4.6",
+  "claude-sonnet-5",
   "claude-sonnet-4.6",
   "claude-sonnet-4.5",
   "claude-sonnet-4",
@@ -20,6 +21,8 @@ export const KIRO_MODEL_IDS = new Set([
   "minimax-m2.5",
   "glm-5",
   "qwen3-coder-next",
+  "openai-gpt-5.4",
+  "openai-gpt-5.5",
   "auto",
 ]);
 
@@ -218,6 +221,7 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-opus-4-6",
+    "claude-sonnet-5",
     "claude-sonnet-4-6",
     "claude-sonnet-4-5",
     "claude-sonnet-4",
@@ -227,6 +231,8 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "minimax-m2-5",
     "glm-5",
     "qwen3-coder-next",
+    "openai-gpt-5-4",
+    "openai-gpt-5-5",
     "auto",
   ]),
   // API-verified 2026-04-14 (eu-west-1 IdC token), glm-5 removed 2026-05-05 (us-east-1 only)
@@ -234,6 +240,7 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-opus-4-6",
+    "claude-sonnet-5",
     "claude-sonnet-4-6",
     "claude-sonnet-4-5",
     "claude-sonnet-4",
@@ -241,6 +248,8 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "minimax-m2-1",
     "minimax-m2-5",
     "qwen3-coder-next",
+    "openai-gpt-5-4",
+    "openai-gpt-5-5",
     "auto",
   ]),
 };
@@ -303,6 +312,19 @@ export const kiroModels = [
     cost: ZERO_COST,
     contextWindow: 1000000,
     maxTokens: 32768,
+  },
+  // Claude Sonnet 5
+  {
+    id: "claude-sonnet-5",
+    name: "Claude Sonnet 5",
+    api: "kiro-api" as const,
+    provider: "kiro" as const,
+    baseUrl: BASE_URL,
+    reasoning: true,
+    input: ["text", "image"] as ("text" | "image")[],
+    cost: ZERO_COST,
+    contextWindow: 1000000,
+    maxTokens: 65536,
   },
   // Claude Sonnet 4.6
   {
@@ -419,6 +441,31 @@ export const kiroModels = [
     cost: ZERO_COST,
     contextWindow: 256000,
     maxTokens: 8192,
+  },
+  // OpenAI GPT
+  {
+    id: "openai-gpt-5-4",
+    name: "OpenAI GPT 5.4",
+    api: "kiro-api" as const,
+    provider: "kiro" as const,
+    baseUrl: BASE_URL,
+    reasoning: true,
+    input: ["text"] as ("text" | "image")[],
+    cost: ZERO_COST,
+    contextWindow: 278528,
+    maxTokens: 32768,
+  },
+  {
+    id: "openai-gpt-5-5",
+    name: "OpenAI GPT 5.5",
+    api: "kiro-api" as const,
+    provider: "kiro" as const,
+    baseUrl: BASE_URL,
+    reasoning: true,
+    input: ["text"] as ("text" | "image")[],
+    cost: ZERO_COST,
+    contextWindow: 278528,
+    maxTokens: 32768,
   },
   // Auto — routes to optimal model per task
   {
