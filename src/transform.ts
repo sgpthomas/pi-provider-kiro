@@ -107,6 +107,20 @@ export function convertImagesToKiro(images: Array<{ mimeType: string; data: stri
   return images.map((img) => ({ format: img.mimeType.split("/")[1] || "png", source: { bytes: img.data } }));
 }
 
+export function buildReasoningContent(block: {
+  thinking?: string;
+  thinkingSignature?: string;
+  redactedContent?: string;
+}): KiroReasoningContent | undefined {
+  if (block.redactedContent) return { redactedContent: block.redactedContent };
+  if (block.thinking || block.thinkingSignature) {
+    return {
+      reasoningText: { text: block.thinking || "", ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}) },
+    };
+  }
+  return undefined;
+}
+
 export function buildHistory(
   messages: Message[],
   modelId: string,
@@ -151,12 +165,15 @@ export function buildHistory(
       }
     } else if (msg.role === "assistant") {
       let armContent = "";
+      let armReasoningContent: KiroReasoningContent | undefined;
       const armToolUses: KiroToolUse[] = [];
       if (Array.isArray(msg.content)) {
         for (const block of msg.content) {
           if (block.type === "text") armContent += (block as TextContent).text;
           else if (block.type === "thinking")
-            armContent = `<thinking>${(block as ThinkingContent).thinking}</thinking>\n\n${armContent}`;
+            armReasoningContent = buildReasoningContent(
+              block as unknown as { thinking?: string; thinkingSignature?: string; redactedContent?: string },
+            );
           else if (block.type === "toolCall") {
             const tc = block as ToolCall;
             armToolUses.push({
@@ -169,7 +186,11 @@ export function buildHistory(
       }
       if (!armContent && armToolUses.length === 0) continue;
       history.push({
-        assistantResponseMessage: { content: armContent, ...(armToolUses.length > 0 ? { toolUses: armToolUses } : {}) },
+        assistantResponseMessage: {
+          content: armContent,
+          ...(armReasoningContent ? { reasoningContent: armReasoningContent } : {}),
+          ...(armToolUses.length > 0 ? { toolUses: armToolUses } : {}),
+        },
       });
     } else if (msg.role === "toolResult") {
       const trMsg = msg as ToolResultMessage;

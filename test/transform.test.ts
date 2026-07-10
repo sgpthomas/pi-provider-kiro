@@ -150,6 +150,22 @@ describe("Feature 5: Message Transformation", () => {
       expect(entry?.assistantResponseMessage?.toolUses?.[0].name).toBe("bash");
     });
 
+    it("replays assistant thinking as structured reasoningContent, not literal <thinking> text", () => {
+      const a = assistant("the answer");
+      a.content = [
+        { type: "thinking", thinking: "let me reason", thinkingSignature: "sig123" },
+        { type: "text", text: "the answer" },
+      ] as AssistantMessage["content"];
+      const msgs: Message[] = [user("go"), a, user("next")];
+      const { history } = buildHistory(msgs, "M");
+      const arm = history.find((h) => h.assistantResponseMessage)?.assistantResponseMessage;
+      expect(arm?.content).toBe("the answer");
+      expect(arm?.content).not.toContain("<thinking>");
+      expect(arm?.reasoningContent?.reasoningText?.text).toBe("let me reason");
+      expect(arm?.reasoningContent?.reasoningText?.signature).toBe("sig123");
+      expect(JSON.stringify(history)).not.toContain("<thinking>");
+    });
+
     it("batches consecutive tool results", () => {
       const a = assistant("");
       a.content = [

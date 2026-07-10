@@ -37,6 +37,7 @@ import {
 import { countTokens } from "./tokenizer.js";
 import {
   buildHistory,
+  buildReasoningContent,
   convertImagesToKiro,
   convertToolsToKiro,
   extractImages,
@@ -219,14 +220,6 @@ function getAdditionalModelRequestFields(kiroModelId: string, reasoning?: string
   if (kiroModelId.startsWith("openai-gpt-")) return { reasoning: { effort } };
   if (kiroModelId.startsWith("claude-")) {
     return { thinking: { type: "adaptive", display: "summarized" }, output_config: { effort } };
-  }
-  return undefined;
-}
-
-function buildReasoningContent(block: { thinking?: string; thinkingSignature?: string; redactedContent?: string }): KiroReasoningContent | undefined {
-  if (block.redactedContent) return { redactedContent: block.redactedContent };
-  if (block.thinking || block.thinkingSignature) {
-    return { reasoningText: { text: block.thinking || "", ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}) } };
   }
   return undefined;
 }
