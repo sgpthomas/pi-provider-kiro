@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected the OpenAI GPT model slugs sent to the Kiro API. The backend renamed these models to drop the `openai-` prefix, so `openai-gpt-5.5` / `openai-gpt-5.4` now return `INVALID_MODEL_ID`. The catalog IDs are now `gpt-5-5` / `gpt-5-4` (resolving to `gpt-5.5` / `gpt-5.4`), and the reasoning-fields gate in `stream.ts` matches on the `gpt-` prefix.
+
 ## [0.8.0] - 2026-05-29
 
 ### Added

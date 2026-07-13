@@ -217,7 +217,7 @@ function mapKiroReasoningEffort(reasoning?: string): string | undefined {
 function getAdditionalModelRequestFields(kiroModelId: string, reasoning?: string): Record<string, unknown> | undefined {
   const effort = mapKiroReasoningEffort(reasoning);
   if (!effort) return undefined;
-  if (kiroModelId.startsWith("openai-gpt-")) return { reasoning: { effort } };
+  if (kiroModelId.startsWith("gpt-")) return { reasoning: { effort } };
   if (kiroModelId.startsWith("claude-")) {
     return { thinking: { type: "adaptive", display: "summarized" }, output_config: { effort } };
   }

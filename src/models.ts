@@ -21,8 +21,8 @@ export const KIRO_MODEL_IDS = new Set([
   "minimax-m2.5",
   "glm-5",
   "qwen3-coder-next",
-  "openai-gpt-5.4",
-  "openai-gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.5",
   "auto",
 ]);
 
@@ -231,8 +231,8 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "minimax-m2-5",
     "glm-5",
     "qwen3-coder-next",
-    "openai-gpt-5-4",
-    "openai-gpt-5-5",
+    "gpt-5-4",
+    "gpt-5-5",
     "auto",
   ]),
   // API-verified 2026-04-14 (eu-west-1 IdC token), glm-5 removed 2026-05-05 (us-east-1 only)
@@ -248,8 +248,8 @@ const MODELS_BY_REGION: Record<string, Set<string>> = {
     "minimax-m2-1",
     "minimax-m2-5",
     "qwen3-coder-next",
-    "openai-gpt-5-4",
-    "openai-gpt-5-5",
+    "gpt-5-4",
+    "gpt-5-5",
     "auto",
   ]),
 };
@@ -444,7 +444,7 @@ export const kiroModels = [
   },
   // OpenAI GPT
   {
-    id: "openai-gpt-5-4",
+    id: "gpt-5-4",
     name: "OpenAI GPT 5.4",
     api: "kiro-api" as const,
     provider: "kiro" as const,
@@ -456,7 +456,7 @@ export const kiroModels = [
     maxTokens: 32768,
   },
   {
-    id: "openai-gpt-5-5",
+    id: "gpt-5-5",
     name: "OpenAI GPT 5.5",
     api: "kiro-api" as const,
     provider: "kiro" as const,
