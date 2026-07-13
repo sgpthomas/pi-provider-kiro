@@ -115,7 +115,10 @@ export function buildReasoningContent(block: {
   if (block.redactedContent) return { redactedContent: block.redactedContent };
   if (block.thinking || block.thinkingSignature) {
     return {
-      reasoningText: { text: block.thinking || "", ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}) },
+      reasoningText: {
+        text: block.thinking || "",
+        ...(block.thinkingSignature ? { signature: block.thinkingSignature } : {}),
+      },
     };
   }
   return undefined;

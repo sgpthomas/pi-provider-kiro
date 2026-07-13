@@ -24,7 +24,11 @@ export function parseKiroEvent(parsed: Record<string, unknown>, eventType?: stri
       },
     };
   }
-  if (parsed.text !== undefined && (parsed.signature !== undefined || parsed.redactedContent !== undefined) && parsed.content === undefined) {
+  if (
+    parsed.text !== undefined &&
+    (parsed.signature !== undefined || parsed.redactedContent !== undefined) &&
+    parsed.content === undefined
+  ) {
     return {
       type: "reasoning",
       data: {

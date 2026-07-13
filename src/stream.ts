@@ -295,7 +295,7 @@ export function streamKiro(
         profileArn,
         sessionId: options?.sessionId,
       });
-      let systemPrompt = context.systemPrompt ?? "";
+      const systemPrompt = context.systemPrompt ?? "";
       let retryCount = 0;
       const maxRetries = 3;
       const conversationId = options?.sessionId ?? crypto.randomUUID();
@@ -327,7 +327,9 @@ export function streamKiro(
             for (const b of am.content) {
               if (b.type === "text") armContent += (b as TextContent).text;
               else if (b.type === "thinking")
-                armReasoningContent = buildReasoningContent(b as unknown as { thinking?: string; thinkingSignature?: string; redactedContent?: string });
+                armReasoningContent = buildReasoningContent(
+                  b as unknown as { thinking?: string; thinkingSignature?: string; redactedContent?: string },
+                );
               else if (b.type === "toolCall") {
                 const tc = b as ToolCall;
                 armToolUses.push({
@@ -560,7 +562,12 @@ export function streamKiro(
         const endReasoning = () => {
           if (!reasoningOpen || reasoningBlockIndex === null) return;
           const block = output.content[reasoningBlockIndex] as unknown as { thinking: string };
-          stream.push({ type: "thinking_end", contentIndex: reasoningBlockIndex, content: block.thinking, partial: output });
+          stream.push({
+            type: "thinking_end",
+            contentIndex: reasoningBlockIndex,
+            content: block.thinking,
+            partial: output,
+          });
           reasoningOpen = false;
         };
         const emitReasoning = (data: { text: string; signature?: string; redactedContent?: string }) => {
@@ -575,7 +582,11 @@ export function streamKiro(
               ...(data.redactedContent ? { redactedContent: data.redactedContent } : {}),
             } as unknown as TextContent);
           }
-          const block = output.content[reasoningBlockIndex] as unknown as { thinking: string; thinkingSignature?: string; redactedContent?: string };
+          const block = output.content[reasoningBlockIndex] as unknown as {
+            thinking: string;
+            thinkingSignature?: string;
+            redactedContent?: string;
+          };
           if (data.signature) block.thinkingSignature = data.signature;
           if (data.redactedContent) block.redactedContent = data.redactedContent;
           if (delta) {
@@ -620,8 +631,8 @@ export function streamKiro(
         };
         const utf8Decoder = new TextDecoder();
         const eventStream = eventStreamMarshaller.deserialize(bodyIterable, async (event: Record<string, Message>) => {
-          const key = Object.keys(event)[0]!;
-          const msg = event[key]!;
+          const key = Object.keys(event)[0];
+          const msg = event[key];
           const parsed = JSON.parse(utf8Decoder.decode(msg.body)) as Record<string, unknown>;
           return { [key]: parsed } as Record<string, unknown>;
         });
@@ -683,7 +694,7 @@ export function streamKiro(
               if (event.data === lastContentData) continue;
               lastContentData = event.data;
               totalContent += event.data;
-if (textBlockIndex === null) {
+              if (textBlockIndex === null) {
                 textBlockIndex = output.content.length;
                 output.content.push({ type: "text", text: "" });
                 stream.push({ type: "text_start", contentIndex: textBlockIndex, partial: output });

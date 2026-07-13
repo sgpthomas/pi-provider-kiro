@@ -283,8 +283,7 @@ describe("Feature 9: Streaming Integration", () => {
 
   it("emits thinking_start -> thinking_delta -> thinking_end -> text_start -> text_delta -> text_end for reasoning model", async () => {
     const mockFetch = mockFetchChunked([
-      '{"content":"<thinking>Let me think"}',
-      '{"content":"</thinking>\\n\\n"}',
+      '{"text":"Let me think","signature":"sig1"}',
       '{"content":"The answer"}',
       '{"contextUsagePercentage":15}',
     ]);

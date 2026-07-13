@@ -27,8 +27,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("KIRO_MODEL_IDS", () => {
-    it("contains 13 model IDs", () => {
-      expect(KIRO_MODEL_IDS.size).toBe(13);
+    it("contains 16 model IDs", () => {
+      expect(KIRO_MODEL_IDS.size).toBe(16);
     });
   });
 
@@ -73,8 +73,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("model catalog", () => {
-    it("defines 13 models", () => {
-      expect(kiroModels).toHaveLength(13);
+    it("defines 16 models", () => {
+      expect(kiroModels).toHaveLength(16);
     });
 
     it("claude-haiku-4-5 has reasoning=false", () => {
@@ -109,9 +109,17 @@ describe("Feature 2: Model Definitions", () => {
       expect(opusModels.every((m) => m.maxTokens === 32768 || m.maxTokens === 128000)).toBe(true);
     });
 
-    it("non-Claude models (except auto) have 8K max tokens", () => {
-      const nonClaudeModels = kiroModels.filter((m) => !m.id.startsWith("claude-") && m.id !== "auto");
-      expect(nonClaudeModels.every((m) => m.maxTokens === 8192)).toBe(true);
+    it("non-Claude OSS models (except auto and GPT) have 8K max tokens", () => {
+      const ossModels = kiroModels.filter(
+        (m) => !m.id.startsWith("claude-") && !m.id.startsWith("gpt-") && m.id !== "auto",
+      );
+      expect(ossModels.every((m) => m.maxTokens === 8192)).toBe(true);
+    });
+
+    it("GPT models have 32K max tokens", () => {
+      const gptModels = kiroModels.filter((m) => m.id.startsWith("gpt-"));
+      expect(gptModels.length).toBeGreaterThan(0);
+      expect(gptModels.every((m) => m.maxTokens === 32768)).toBe(true);
     });
   });
 
