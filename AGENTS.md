@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-pi extension that connects the pi coding agent to the Kiro API (AWS CodeWhisperer/Q). Provides 17 models across 7 families with multi-provider authentication (AWS Builder ID, Google, GitHub).
+pi extension that connects the pi coding agent to the Kiro API (AWS CodeWhisperer/Q). Provides 20 models across 8 families with multi-provider authentication (AWS Builder ID, Google, GitHub).
 
 ## Directory Structure
 

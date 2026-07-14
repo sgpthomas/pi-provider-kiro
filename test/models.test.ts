@@ -9,6 +9,7 @@ describe("Feature 2: Model Definitions", () => {
       ["claude-opus-4-7", "claude-opus-4.7"],
       ["claude-opus-4-6", "claude-opus-4.6"],
       ["claude-sonnet-4-6", "claude-sonnet-4.6"],
+      ["claude-fable-5", "claude-fable-5"],
       ["claude-sonnet-4-5", "claude-sonnet-4.5"],
       ["claude-sonnet-4", "claude-sonnet-4"],
       ["claude-haiku-4-5", "claude-haiku-4.5"],
@@ -17,6 +18,9 @@ describe("Feature 2: Model Definitions", () => {
       ["minimax-m2-1", "minimax-m2.1"],
       ["glm-5", "glm-5"],
       ["qwen3-coder-next", "qwen3-coder-next"],
+      ["gpt-5-6-sol", "gpt-5.6-sol"],
+      ["gpt-5-6-terra", "gpt-5.6-terra"],
+      ["gpt-5-6-luna", "gpt-5.6-luna"],
     ])("maps %s → %s", (piId, kiroId) => {
       expect(resolveKiroModel(piId)).toBe(kiroId);
     });
@@ -27,8 +31,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("KIRO_MODEL_IDS", () => {
-    it("contains 16 model IDs", () => {
-      expect(KIRO_MODEL_IDS.size).toBe(16);
+    it("contains 20 model IDs", () => {
+      expect(KIRO_MODEL_IDS.size).toBe(20);
     });
   });
 
@@ -73,8 +77,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("model catalog", () => {
-    it("defines 16 models", () => {
-      expect(kiroModels).toHaveLength(16);
+    it("defines 20 models", () => {
+      expect(kiroModels).toHaveLength(20);
     });
 
     it("claude-haiku-4-5 has reasoning=false", () => {

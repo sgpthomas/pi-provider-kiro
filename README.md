@@ -43,7 +43,9 @@ If you already use [kiro-cli](https://kiro.dev), the provider can reuse those cr
 
 | Family | Models | Context | Reasoning |
 |--------|--------|---------|-----------|
-| Claude Opus | `claude-opus-4-7`, `claude-opus-4-6` | 1M | ✓ |
+| Claude Opus | `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` | 1M | ✓ |
+| Claude Sonnet 5 | `claude-sonnet-5` | 1M | ✓ |
+| Claude Fable 5 | `claude-fable-5` | 1M | ✓ |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | ✓ |
 | Claude Sonnet 4.5 | `claude-sonnet-4-5` | 200K | ✓ |
 | Claude Sonnet 4 | `claude-sonnet-4` | 200K | ✓ |
@@ -52,6 +54,8 @@ If you already use [kiro-cli](https://kiro.dev), the provider can reuse those cr
 | MiniMax | `minimax-m2-1`, `minimax-m2-5` | 196K | ✗ |
 | GLM 5 | `glm-5` | 200K | ✓ |
 | Qwen3 Coder | `qwen3-coder-next` | 256K | ✓ |
+| OpenAI GPT 5.4/5.5 | `gpt-5-4`, `gpt-5-5` | 272K | ✓ |
+| OpenAI GPT 5.6 | `gpt-5-6-sol`, `gpt-5-6-terra`, `gpt-5-6-luna` | 272K | ✓ |
 | Auto | `auto` | 1M | ✓ |
 
 All listed models are free to use through Kiro.
@@ -98,7 +102,7 @@ The extension is organized as one feature per file:
 ```
 src/
 ├── index.ts            # Extension registration
-├── models.ts           # 12 model definitions + ID resolution
+├── models.ts           # 20 model definitions + ID resolution
 ├── oauth.ts            # Multi-provider auth (Builder ID / Google / GitHub)
 ├── kiro-cli.ts         # kiro-cli credential sharing
 ├── transform.ts        # Message format conversion
