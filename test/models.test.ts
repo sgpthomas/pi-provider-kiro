@@ -5,6 +5,7 @@ describe("Feature 2: Model Definitions", () => {
   describe("resolveKiroModel", () => {
     it.each([
       // Claude models - dash to dot conversion
+      ["claude-opus-5", "claude-opus-5"],
       ["claude-opus-4-8", "claude-opus-4.8"],
       ["claude-opus-4-7", "claude-opus-4.7"],
       ["claude-opus-4-6", "claude-opus-4.6"],
@@ -31,8 +32,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("KIRO_MODEL_IDS", () => {
-    it("contains 20 model IDs", () => {
-      expect(KIRO_MODEL_IDS.size).toBe(20);
+    it("contains 21 model IDs", () => {
+      expect(KIRO_MODEL_IDS.size).toBe(21);
     });
   });
 
@@ -77,8 +78,8 @@ describe("Feature 2: Model Definitions", () => {
   });
 
   describe("model catalog", () => {
-    it("defines 20 models", () => {
-      expect(kiroModels).toHaveLength(20);
+    it("defines 21 models", () => {
+      expect(kiroModels).toHaveLength(21);
     });
 
     it("claude-haiku-4-5 has reasoning=false", () => {
@@ -110,7 +111,9 @@ describe("Feature 2: Model Definitions", () => {
 
     it("opus models have expected max tokens", () => {
       const opusModels = kiroModels.filter((m) => m.id.includes("opus"));
-      expect(opusModels.every((m) => m.maxTokens === 32768 || m.maxTokens === 128000)).toBe(true);
+      expect(opusModels.every((m) => m.maxTokens === 32768 || m.maxTokens === 65536 || m.maxTokens === 128000)).toBe(
+        true,
+      );
     });
 
     it("non-Claude OSS models (except auto and GPT) have 8K max tokens", () => {

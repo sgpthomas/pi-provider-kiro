@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added newly available Kiro models: `claude-fable-5`, `gpt-5-6-sol`, `gpt-5-6-terra`, and `gpt-5-6-luna`.
+- Added newly available Kiro models: `claude-opus-5`, `claude-fable-5`, `gpt-5-6-sol`, `gpt-5-6-terra`, and `gpt-5-6-luna`.
 
 ### Fixed
 

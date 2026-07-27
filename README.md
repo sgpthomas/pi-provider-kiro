@@ -43,7 +43,7 @@ If you already use [kiro-cli](https://kiro.dev), the provider can reuse those cr
 
 | Family | Models | Context | Reasoning |
 |--------|--------|---------|-----------|
-| Claude Opus | `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` | 1M | ✓ |
+| Claude Opus | `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` | 1M | ✓ |
 | Claude Sonnet 5 | `claude-sonnet-5` | 1M | ✓ |
 | Claude Fable 5 | `claude-fable-5` | 1M | ✓ |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | ✓ |
@@ -102,7 +102,7 @@ The extension is organized as one feature per file:
 ```
 src/
 ├── index.ts            # Extension registration
-├── models.ts           # 20 model definitions + ID resolution
+├── models.ts           # 21 model definitions + ID resolution
 ├── oauth.ts            # Multi-provider auth (Builder ID / Google / GitHub)
 ├── kiro-cli.ts         # kiro-cli credential sharing
 ├── transform.ts        # Message format conversion

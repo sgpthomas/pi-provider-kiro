@@ -425,6 +425,7 @@ var init_models = __esm({
     "use strict";
     CACHE_PATH = join2(homedir2(), ".kiro-models-cache.json");
     KIRO_MODEL_IDS = /* @__PURE__ */ new Set([
+      "claude-opus-5",
       "claude-opus-4.8",
       "claude-opus-4.7",
       "claude-opus-4.6",
@@ -465,6 +466,7 @@ var init_models = __esm({
     };
     MODELS_BY_REGION = {
       "us-east-1": /* @__PURE__ */ new Set([
+        "claude-opus-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-opus-4-6",
@@ -507,6 +509,18 @@ var init_models = __esm({
     BASE_URL = "https://q.us-east-1.amazonaws.com/generateAssistantResponse";
     ZERO_COST = Object.freeze({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
     kiroModels = [
+      {
+        id: "claude-opus-5",
+        name: "Claude Opus 5",
+        api: "kiro-api",
+        provider: "kiro",
+        baseUrl: BASE_URL,
+        reasoning: true,
+        input: ["text", "image"],
+        cost: ZERO_COST,
+        contextWindow: 1e6,
+        maxTokens: 65536
+      },
       {
         id: "claude-opus-4-8",
         name: "Claude Opus 4.8",
