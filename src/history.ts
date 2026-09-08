@@ -71,13 +71,34 @@ export function injectSyntheticToolCalls(history: KiroHistoryEntry[]): KiroHisto
   return result;
 }
 
+function isPlainUserInput(entry: KiroHistoryEntry | undefined): boolean {
+  const user = entry?.userInputMessage;
+  return !!user && !user.userInputMessageContext?.toolResults;
+}
+
+function trimOldestHistoryChunk(history: KiroHistoryEntry[]): KiroHistoryEntry[] {
+  // Prefer advancing to the next real user turn. Synthetic tool-result users
+  // cannot anchor Kiro history on their own.
+  const nextPlainUser = history.findIndex((entry, index) => index > 0 && isPlainUserInput(entry));
+  if (nextPlainUser >= 0) return history.slice(nextPlainUser);
+
+  // A long autonomous tool loop may have only its original user request. Keep
+  // that task anchor and evict the oldest complete assistant/tool-result pair
+  // instead of allowing sanitization to erase the entire remaining history.
+  if (history.length <= 1) return history;
+  const assistant = history[1]?.assistantResponseMessage;
+  const followingToolResults = history[2]?.userInputMessage?.userInputMessageContext?.toolResults;
+  const removableCount = assistant?.toolUses?.length && followingToolResults?.length ? 2 : 1;
+  return [history[0], ...history.slice(1 + removableCount)];
+}
+
 export function truncateHistory(history: KiroHistoryEntry[], limit: number): KiroHistoryEntry[] {
   let sanitized = sanitizeHistory(stripHistoryImages(history));
   let historySize = JSON.stringify(sanitized).length;
-  while (historySize > limit && sanitized.length > 2) {
-    sanitized.shift();
-    while (sanitized.length > 0 && !sanitized[0]?.userInputMessage) sanitized.shift();
-    sanitized = sanitizeHistory(sanitized);
+  while (historySize > limit && sanitized.length > 1) {
+    const trimmed = trimOldestHistoryChunk(sanitized);
+    if (trimmed.length >= sanitized.length) break;
+    sanitized = sanitizeHistory(trimmed);
     historySize = JSON.stringify(sanitized).length;
   }
   return injectSyntheticToolCalls(sanitized);

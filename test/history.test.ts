@@ -146,6 +146,38 @@ describe("Feature 6: History Management", () => {
       if (r.length > 0) expect(r[0].userInputMessage).toBeDefined();
     });
 
+    it("preserves the task anchor while trimming a long autonomous tool loop", () => {
+      const cycles = Array.from({ length: 12 }, (_, index) => {
+        const toolUseId = `tc${index}`;
+        return [
+          assistantEntry("", [{ name: "bash", toolUseId, input: { step: index } }]),
+          userEntry("results", [
+            {
+              toolUseId,
+              content: [{ text: `step ${index} ${"x".repeat(180)}` }],
+              status: "success" as const,
+            },
+          ]),
+        ];
+      }).flat();
+      const limit = 1_000;
+
+      const result = truncateHistory([userEntry("original task"), ...cycles], limit);
+
+      expect(JSON.stringify(result).length).toBeLessThanOrEqual(limit);
+      expect(result[0].userInputMessage?.content).toBe("original task");
+      expect(result.length).toBeGreaterThan(1);
+      const retainedToolUses = new Set(
+        result.flatMap((entry) => entry.assistantResponseMessage?.toolUses?.map((tool) => tool.toolUseId) ?? []),
+      );
+      const retainedToolResults = result.flatMap(
+        (entry) => entry.userInputMessage?.userInputMessageContext?.toolResults ?? [],
+      );
+      expect(retainedToolResults.length).toBeGreaterThan(0);
+      expect(retainedToolResults.at(-1)?.toolUseId).toBe("tc11");
+      expect(retainedToolResults.every((toolResult) => retainedToolUses.has(toolResult.toolUseId))).toBe(true);
+    });
+
     it("scaled limit for 1M context model retains history that fixed limit would truncate", () => {
       // Build history that exceeds HISTORY_LIMIT (850K) but fits within a 1M-scaled limit
       const entrySize = 10000;

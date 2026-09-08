@@ -3365,13 +3365,26 @@ function injectSyntheticToolCalls(history) {
   }
   return result;
 }
+function isPlainUserInput(entry) {
+  const user = entry?.userInputMessage;
+  return !!user && !user.userInputMessageContext?.toolResults;
+}
+function trimOldestHistoryChunk(history) {
+  const nextPlainUser = history.findIndex((entry, index) => index > 0 && isPlainUserInput(entry));
+  if (nextPlainUser >= 0) return history.slice(nextPlainUser);
+  if (history.length <= 1) return history;
+  const assistant = history[1]?.assistantResponseMessage;
+  const followingToolResults = history[2]?.userInputMessage?.userInputMessageContext?.toolResults;
+  const removableCount = assistant?.toolUses?.length && followingToolResults?.length ? 2 : 1;
+  return [history[0], ...history.slice(1 + removableCount)];
+}
 function truncateHistory(history, limit) {
   let sanitized = sanitizeHistory(stripHistoryImages(history));
   let historySize = JSON.stringify(sanitized).length;
-  while (historySize > limit && sanitized.length > 2) {
-    sanitized.shift();
-    while (sanitized.length > 0 && !sanitized[0]?.userInputMessage) sanitized.shift();
-    sanitized = sanitizeHistory(sanitized);
+  while (historySize > limit && sanitized.length > 1) {
+    const trimmed = trimOldestHistoryChunk(sanitized);
+    if (trimmed.length >= sanitized.length) break;
+    sanitized = sanitizeHistory(trimmed);
     historySize = JSON.stringify(sanitized).length;
   }
   return injectSyntheticToolCalls(sanitized);
