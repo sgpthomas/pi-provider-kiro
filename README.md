@@ -1,12 +1,12 @@
 # pi-provider-kiro
 
-A [pi](https://shittycodingagent.ai/) provider extension that connects pi to the **Kiro API** (AWS CodeWhisperer/Q), exposing **12 kiro-cli-verified models** through one provider surface.
+A [pi](https://shittycodingagent.ai/) provider extension that connects pi to the **Kiro API** (AWS CodeWhisperer/Q), exposing a credential-scoped dynamic model catalog with **20 current bootstrap models** for startup and offline fallback.
 
 ## Why this exists
 
 Kiro gives you a strong free model menu, but pi needs a provider that speaks Kiro's auth, model catalog, and streaming protocol cleanly. `pi-provider-kiro` handles that bridge, including:
 
-- AWS Builder ID, IAM Identity Center, Google, and GitHub login flows
+- AWS Builder ID, IAM Identity Center, Google, GitHub, and enterprise external IdP (OIDC) login flows
 - shared credentials from an existing `kiro-cli` session when available
 - reasoning-aware streaming
 - region-aware model filtering so pi only shows models your Kiro region can actually use
@@ -37,15 +37,20 @@ The login flow supports:
 - **Google** — social login via `kiro-cli`
 - **GitHub** — social login via `kiro-cli`
 
+If your organization uses an external identity provider (e.g. Okta) through Kiro, log in once with
+`kiro-cli login` and the provider reuses that session — no separate pi login needed.
+
 If you already use [kiro-cli](https://kiro.dev), the provider can reuse those credentials instead of forcing a second login.
 
 ## Models
+
+The authenticated Kiro catalog is authoritative and can add or remove models by profile and region. The current bootstrap fallback includes:
 
 | Family | Models | Context | Reasoning |
 |--------|--------|---------|-----------|
 | Claude Opus | `claude-opus-5`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6` | 1M | ✓ |
 | Claude Sonnet 5 | `claude-sonnet-5` | 1M | ✓ |
-| Claude Fable 5 | `claude-fable-5` | 1M | ✓ |
+| Claude Fable | `claude-fable-5-1`, `claude-fable-5` | 1M | ✓ |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | 1M | ✓ |
 | Claude Sonnet 4.5 | `claude-sonnet-4-5` | 200K | ✓ |
 | Claude Sonnet 4 | `claude-sonnet-4` | 200K | ✓ |
@@ -54,8 +59,7 @@ If you already use [kiro-cli](https://kiro.dev), the provider can reuse those cr
 | MiniMax | `minimax-m2-1`, `minimax-m2-5` | 196K | ✗ |
 | GLM 5 | `glm-5` | 200K | ✓ |
 | Qwen3 Coder | `qwen3-coder-next` | 256K | ✓ |
-| OpenAI GPT 5.4/5.5 | `gpt-5-4`, `gpt-5-5` | 272K | ✓ |
-| OpenAI GPT 5.6 | `gpt-5-6-sol`, `gpt-5-6-terra`, `gpt-5-6-luna` | 272K | ✓ |
+| GPT 5.6 | `gpt-5-6-sol`, `gpt-5-6-terra`, `gpt-5-6-luna` | 1M | ✓ |
 | Auto | `auto` | 1M | ✓ |
 
 All listed models are free to use through Kiro.
@@ -86,6 +90,34 @@ This provider only keeps local recovery for Kiro-specific cases:
 - empty-stream retries
 - non-retryable Kiro body markers like `MONTHLY_REQUEST_COUNT` and `INSUFFICIENT_MODEL_CAPACITY`
 
+The reason codes this provider classifies on are published from the package
+entry point, so consumers can interpret a code without hardcoding their own copy
+of the literals:
+
+```ts
+import {
+  KIRO_REASON_CODES,
+  isCapacityError,
+  isNonRetryableBodyError,
+  isTooBigError,
+} from "pi-provider-kiro";
+
+isTooBigError(400, body); // size rejection → safe to compact and retry
+isCapacityError(body); // transient capacity → safe to retry as-is
+isNonRetryableBodyError(body); // hard quota → do not retry
+```
+
+These are Kiro's own codes, not a provider taxonomy: mapping them to your own
+semantics is the consumer's job.
+
+One caveat for consumers outside pi: the entry point is the whole provider, so
+importing it loads modules that import pi's host packages
+(`@earendil-works/pi-ai`, `-pi-coding-agent`, `-pi-tui`). They are declared as
+optional peer dependencies — present already wherever this runs as a pi
+extension, but a standalone project must install them itself or the import fails
+with `ERR_MODULE_NOT_FOUND`. The types resolve without them under the usual
+`skipLibCheck`.
+
 ## Development
 
 ```bash
@@ -102,12 +134,13 @@ The extension is organized as one feature per file:
 ```
 src/
 ├── index.ts            # Extension registration
-├── models.ts           # 21 model definitions + ID resolution
+├── models.ts           # Dynamic catalog, bootstrap definitions, and ID resolution
 ├── oauth.ts            # Multi-provider auth (Builder ID / Google / GitHub)
 ├── kiro-cli.ts         # kiro-cli credential sharing
 ├── transform.ts        # Message format conversion
 ├── history.ts          # Conversation history management
 ├── thinking-parser.ts  # Streaming <thinking> tag parser
+├── token-type.ts       # `tokentype` header for external IdP bearer tokens
 ├── event-parser.ts     # Kiro stream event parser
 └── stream.ts           # Main streaming orchestrator
 ```

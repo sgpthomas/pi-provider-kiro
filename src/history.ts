@@ -5,13 +5,34 @@ import type { KiroHistoryEntry, KiroToolSpec } from "./transform.js";
 export const HISTORY_LIMIT = 850000;
 /** The context window size (in tokens) that HISTORY_LIMIT was calibrated for. */
 export const HISTORY_LIMIT_CONTEXT_WINDOW = 200000;
+/** Maximum combined base64 characters retained for one historical image-bearing turn. */
+export const HISTORY_IMAGE_BASE64_LIMIT = 512 * 1024;
 
-/** Remove images from history entries — they've already been processed by the
- *  model in previous turns and re-sending them wastes context / causes 413s. */
-export function stripHistoryImages(history: KiroHistoryEntry[]): KiroHistoryEntry[] {
-  return history.map((entry) => {
-    if (!entry.userInputMessage?.images) return entry;
-    const { images, ...rest } = entry.userInputMessage;
+/**
+ * Keep at most the newest bounded image-bearing history entry.
+ *
+ * Older images are removed to bound request growth. If the newest image set is
+ * itself too large, remove it as well rather than substituting an older image
+ * that no longer matches a follow-up such as "look at that image again".
+ */
+export function stripHistoryImages(history: KiroHistoryEntry[], keepNewestBounded = true): KiroHistoryEntry[] {
+  let newestImageIndex = -1;
+  for (let index = history.length - 1; index >= 0; index--) {
+    if ((history[index]?.userInputMessage?.images?.length ?? 0) > 0) {
+      newestImageIndex = index;
+      break;
+    }
+  }
+
+  const newestImages = newestImageIndex >= 0 ? history[newestImageIndex]?.userInputMessage?.images : undefined;
+  const keepNewest =
+    keepNewestBounded &&
+    newestImages !== undefined &&
+    newestImages.reduce((size, image) => size + image.source.bytes.length, 0) <= HISTORY_IMAGE_BASE64_LIMIT;
+
+  return history.map((entry, index) => {
+    if (!entry.userInputMessage?.images || (index === newestImageIndex && keepNewest)) return entry;
+    const { images: _images, ...rest } = entry.userInputMessage;
     return { ...entry, userInputMessage: { ...rest } };
   });
 }
@@ -71,37 +92,18 @@ export function injectSyntheticToolCalls(history: KiroHistoryEntry[]): KiroHisto
   return result;
 }
 
-function isPlainUserInput(entry: KiroHistoryEntry | undefined): boolean {
-  const user = entry?.userInputMessage;
-  return !!user && !user.userInputMessageContext?.toolResults;
+export function prepareHistory(history: KiroHistoryEntry[], keepNewestBoundedImage = true): KiroHistoryEntry[] {
+  return injectSyntheticToolCalls(sanitizeHistory(stripHistoryImages(history, keepNewestBoundedImage)));
 }
 
-function trimOldestHistoryChunk(history: KiroHistoryEntry[]): KiroHistoryEntry[] {
-  // Prefer advancing to the next real user turn. Synthetic tool-result users
-  // cannot anchor Kiro history on their own.
-  const nextPlainUser = history.findIndex((entry, index) => index > 0 && isPlainUserInput(entry));
-  if (nextPlainUser >= 0) return history.slice(nextPlainUser);
-
-  // A long autonomous tool loop may have only its original user request. Keep
-  // that task anchor and evict the oldest complete assistant/tool-result pair
-  // instead of allowing sanitization to erase the entire remaining history.
-  if (history.length <= 1) return history;
-  const assistant = history[1]?.assistantResponseMessage;
-  const followingToolResults = history[2]?.userInputMessage?.userInputMessageContext?.toolResults;
-  const removableCount = assistant?.toolUses?.length && followingToolResults?.length ? 2 : 1;
-  return [history[0], ...history.slice(1 + removableCount)];
-}
-
-export function truncateHistory(history: KiroHistoryEntry[], limit: number): KiroHistoryEntry[] {
-  let sanitized = sanitizeHistory(stripHistoryImages(history));
-  let historySize = JSON.stringify(sanitized).length;
-  while (historySize > limit && sanitized.length > 1) {
-    const trimmed = trimOldestHistoryChunk(sanitized);
-    if (trimmed.length >= sanitized.length) break;
-    sanitized = sanitizeHistory(trimmed);
-    historySize = JSON.stringify(sanitized).length;
+/** Fail before sending rather than silently discarding conversation context. */
+export function assertHistoryWithinLimit(history: KiroHistoryEntry[], limit: number): void {
+  const size = JSON.stringify(history).length;
+  if (size > limit) {
+    throw new Error(
+      `Kiro API error: context_length_exceeded (local history ${size} chars / ${history.length} entries exceeds ${limit}-char limit)`,
+    );
   }
-  return injectSyntheticToolCalls(sanitized);
 }
 
 export function extractToolNamesFromHistory(history: KiroHistoryEntry[]): Set<string> {

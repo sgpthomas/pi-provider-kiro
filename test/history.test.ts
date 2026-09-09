@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   addPlaceholderTools,
+  assertHistoryWithinLimit,
   extractToolNamesFromHistory,
+  HISTORY_IMAGE_BASE64_LIMIT,
   HISTORY_LIMIT,
   HISTORY_LIMIT_CONTEXT_WINDOW,
   injectSyntheticToolCalls,
+  prepareHistory,
   sanitizeHistory,
   stripHistoryImages,
-  truncateHistory,
 } from "../src/history.js";
 import type { KiroHistoryEntry, KiroToolResult, KiroToolSpec, KiroToolUse } from "../src/transform.js";
 
@@ -15,7 +17,7 @@ const userEntry = (content: string, toolResults?: KiroToolResult[]): KiroHistory
   userInputMessage: {
     content,
     modelId: "M",
-    origin: "AI_EDITOR",
+    origin: "KIRO_CLI",
     ...(toolResults ? { userInputMessageContext: { toolResults } } : {}),
   },
 });
@@ -130,74 +132,52 @@ describe("Feature 6: History Management", () => {
     });
   });
 
-  describe("truncateHistory", () => {
-    it("returns history unchanged if under limit", () => {
+  describe("prepareHistory and history budget", () => {
+    it("preserves valid history at the limit", () => {
       const h = [userEntry("hi"), assistantEntry("hello")];
-      expect(truncateHistory(h, HISTORY_LIMIT)).toHaveLength(2);
+      const prepared = prepareHistory(h);
+      const size = JSON.stringify(prepared).length;
+
+      expect(prepared).toEqual(h);
+      expect(() => assertHistoryWithinLimit(prepared, size)).not.toThrow();
     });
 
-    it("removes oldest entries when over limit", () => {
-      const big = Array.from({ length: 100 }, (_, _i) => [
-        userEntry(`msg ${"x".repeat(10000)}`),
-        assistantEntry(`reply ${"y".repeat(10000)}`),
-      ]).flat();
-      const r = truncateHistory(big, 50000);
-      expect(JSON.stringify(r).length).toBeLessThanOrEqual(50000);
-      if (r.length > 0) expect(r[0].userInputMessage).toBeDefined();
+    it("raises overflow instead of dropping a compacted anchor and tool-only suffix", () => {
+      const result = (id: string): KiroToolResult => ({
+        toolUseId: id,
+        content: [{ text: "x".repeat(300) }],
+        status: "success",
+      });
+      // Tool-result carriers ship empty `content` — the payload is toolResults.
+      const h = [
+        userEntry("SYSTEM PROMPT\n\n<summary>ORIGINAL TASK</summary>"),
+        assistantEntry("", [{ name: "read", toolUseId: "tc1", input: {} }]),
+        userEntry("", [result("tc1")]),
+        assistantEntry("", [{ name: "read", toolUseId: "tc2", input: {} }]),
+        userEntry("", [result("tc2")]),
+      ];
+      const prepared = prepareHistory(h);
+      const size = JSON.stringify(prepared).length;
+
+      expect(prepared).toHaveLength(h.length);
+      expect(prepared[0].userInputMessage?.content).toContain("ORIGINAL TASK");
+      expect(() => assertHistoryWithinLimit(prepared, size - 1)).toThrow(/context_length_exceeded/);
+      expect(() => assertHistoryWithinLimit(prepared, size - 1)).toThrow(`${size} chars / ${h.length} entries`);
     });
 
-    it("preserves the task anchor while trimming a long autonomous tool loop", () => {
-      const cycles = Array.from({ length: 12 }, (_, index) => {
-        const toolUseId = `tc${index}`;
-        return [
-          assistantEntry("", [{ name: "bash", toolUseId, input: { step: index } }]),
-          userEntry("results", [
-            {
-              toolUseId,
-              content: [{ text: `step ${index} ${"x".repeat(180)}` }],
-              status: "success" as const,
-            },
-          ]),
-        ];
-      }).flat();
-      const limit = 1_000;
-
-      const result = truncateHistory([userEntry("original task"), ...cycles], limit);
-
-      expect(JSON.stringify(result).length).toBeLessThanOrEqual(limit);
-      expect(result[0].userInputMessage?.content).toBe("original task");
-      expect(result.length).toBeGreaterThan(1);
-      const retainedToolUses = new Set(
-        result.flatMap((entry) => entry.assistantResponseMessage?.toolUses?.map((tool) => tool.toolUseId) ?? []),
-      );
-      const retainedToolResults = result.flatMap(
-        (entry) => entry.userInputMessage?.userInputMessageContext?.toolResults ?? [],
-      );
-      expect(retainedToolResults.length).toBeGreaterThan(0);
-      expect(retainedToolResults.at(-1)?.toolUseId).toBe("tc11");
-      expect(retainedToolResults.every((toolResult) => retainedToolUses.has(toolResult.toolUseId))).toBe(true);
-    });
-
-    it("scaled limit for 1M context model retains history that fixed limit would truncate", () => {
-      // Build history that exceeds HISTORY_LIMIT (850K) but fits within a 1M-scaled limit
+    it("scales the non-lossy budget with the model context window", () => {
       const entrySize = 10000;
-      const count = Math.ceil(HISTORY_LIMIT / entrySize) + 10; // just over 850K chars
-      const big = Array.from({ length: count }, (_, i) => [
-        userEntry(`msg-${i} ${"x".repeat(entrySize)}`),
-        assistantEntry(`reply-${i} ${"y".repeat(entrySize)}`),
-      ]).flat();
-      const serializedSize = JSON.stringify(big).length;
-      expect(serializedSize).toBeGreaterThan(HISTORY_LIMIT);
-
-      // Fixed limit truncates
-      const fixedResult = truncateHistory(big, HISTORY_LIMIT);
-      expect(fixedResult.length).toBeLessThan(big.length);
-
-      // Scaled limit for 1M context window retains everything
+      const count = Math.ceil(HISTORY_LIMIT / entrySize) + 10;
+      const prepared = prepareHistory(
+        Array.from({ length: count }, (_, i) => [
+          userEntry(`msg-${i} ${"x".repeat(entrySize)}`),
+          assistantEntry(`reply-${i} ${"y".repeat(entrySize)}`),
+        ]).flat(),
+      );
       const scaledLimit = Math.floor((1_000_000 / HISTORY_LIMIT_CONTEXT_WINDOW) * HISTORY_LIMIT);
-      expect(scaledLimit).toBe(4_250_000);
-      const scaledResult = truncateHistory(big, scaledLimit);
-      expect(scaledResult.length).toBe(big.length);
+
+      expect(() => assertHistoryWithinLimit(prepared, HISTORY_LIMIT)).toThrow(/context_length_exceeded/);
+      expect(() => assertHistoryWithinLimit(prepared, scaledLimit)).not.toThrow();
     });
   });
 
@@ -218,39 +198,38 @@ describe("Feature 6: History Management", () => {
   });
 
   describe("stripHistoryImages", () => {
-    it("removes images from user input messages in history", () => {
-      const h: KiroHistoryEntry[] = [
-        {
-          userInputMessage: {
-            content: "Look at this image",
-            modelId: "M",
-            origin: "AI_EDITOR",
-            images: [{ format: "png", source: { bytes: "base64data" } }],
-          },
-        },
-        assistantEntry("I see the image"),
-      ];
+    const imageEntry = (content: string, bytes: string): KiroHistoryEntry => ({
+      userInputMessage: {
+        content,
+        modelId: "M",
+        origin: "KIRO_CLI",
+        images: [{ format: "png", source: { bytes } }],
+      },
+    });
+
+    it("keeps only the newest image-bearing history entry", () => {
+      const h = [imageEntry("old", "old-image"), assistantEntry("old reply"), imageEntry("new", "new-image")];
       const stripped = stripHistoryImages(h);
+
       expect(stripped[0].userInputMessage?.images).toBeUndefined();
-      expect(stripped[0].userInputMessage?.content).toBe("Look at this image");
-      expect(stripped[1].assistantResponseMessage?.content).toBe("I see the image");
+      expect(stripped[0].userInputMessage?.content).toBe("old");
+      expect(stripped[2].userInputMessage?.images?.[0]?.source.bytes).toBe("new-image");
     });
 
     it("preserves entries without images unchanged", () => {
       const h: KiroHistoryEntry[] = [userEntry("hello"), assistantEntry("hi")];
-      const stripped = stripHistoryImages(h);
-      expect(stripped).toEqual(h);
+      expect(stripHistoryImages(h)).toEqual(h);
     });
 
-    it("removes images from tool result messages in history", () => {
+    it("keeps the newest bounded tool-result image and its tool payload", () => {
       const h: KiroHistoryEntry[] = [
         userEntry("go"),
         assistantEntry("ok", [{ name: "screenshot", toolUseId: "tc1", input: {} }]),
         {
           userInputMessage: {
-            content: "Tool results provided.",
+            content: "",
             modelId: "M",
-            origin: "AI_EDITOR",
+            origin: "KIRO_CLI",
             images: [{ format: "png", source: { bytes: "screenshot-data" } }],
             userInputMessageContext: {
               toolResults: [{ toolUseId: "tc1", content: [{ text: "ok" }], status: "success" as const }],
@@ -259,52 +238,63 @@ describe("Feature 6: History Management", () => {
         },
       ];
       const stripped = stripHistoryImages(h);
-      expect(stripped[2].userInputMessage?.images).toBeUndefined();
+      expect(stripped[2].userInputMessage?.images?.[0]?.source.bytes).toBe("screenshot-data");
       expect(stripped[2].userInputMessage?.userInputMessageContext?.toolResults).toHaveLength(1);
+    });
+
+    it("drops the newest image set when it exceeds the explicit byte bound", () => {
+      const stripped = stripHistoryImages([imageEntry("huge", "x".repeat(HISTORY_IMAGE_BASE64_LIMIT + 1))]);
+      expect(stripped[0].userInputMessage?.images).toBeUndefined();
+    });
+
+    it("strips every image when the active model is text-only", () => {
+      const stripped = stripHistoryImages([imageEntry("old", "old"), imageEntry("new", "new")], false);
+      expect(stripped.every((entry) => entry.userInputMessage?.images === undefined)).toBe(true);
     });
 
     it("does not mutate the original history array", () => {
       const images = [{ format: "png", source: { bytes: "data" } }];
-      const h: KiroHistoryEntry[] = [
-        {
-          userInputMessage: { content: "hi", modelId: "M", origin: "AI_EDITOR", images },
-        },
-      ];
+      const h: KiroHistoryEntry[] = [{ userInputMessage: { content: "hi", modelId: "M", origin: "KIRO_CLI", images } }];
       stripHistoryImages(h);
       expect(h[0].userInputMessage?.images).toEqual(images);
     });
   });
 
-  describe("truncateHistory with images", () => {
-    it("strips images from history entries during truncation", () => {
+  describe("prepareHistory with images", () => {
+    it("preserves only the newest bounded image in prepared history", () => {
       const h: KiroHistoryEntry[] = [
         {
           userInputMessage: {
-            content: "Look at this",
+            content: "Old image",
             modelId: "M",
-            origin: "AI_EDITOR",
-            images: [{ format: "png", source: { bytes: "x".repeat(1000) } }],
+            origin: "KIRO_CLI",
+            images: [{ format: "png", source: { bytes: "old-image" } }],
           },
         },
-        assistantEntry("I see it"),
-        userEntry("thanks"),
-        assistantEntry("welcome"),
+        assistantEntry("I saw the old image"),
+        {
+          userInputMessage: {
+            content: "New image",
+            modelId: "M",
+            origin: "KIRO_CLI",
+            images: [{ format: "png", source: { bytes: "new-image" } }],
+          },
+        },
+        assistantEntry("I saw the new image"),
       ];
-      const result = truncateHistory(h, HISTORY_LIMIT);
-      // All image data should be stripped from history
-      for (const entry of result) {
-        expect(entry.userInputMessage?.images).toBeUndefined();
-      }
+      const result = prepareHistory(h);
+      expect(result[0].userInputMessage?.images).toBeUndefined();
+      expect(result[2].userInputMessage?.images?.[0]?.source.bytes).toBe("new-image");
     });
 
-    it("converges when a single image entry exceeds the limit", () => {
+    it("removes a huge image before enforcing the limit", () => {
       const hugeImage = "x".repeat(2_000_000); // 2MB base64
       const h: KiroHistoryEntry[] = [
         {
           userInputMessage: {
             content: "Look at this huge image",
             modelId: "M",
-            origin: "AI_EDITOR",
+            origin: "KIRO_CLI",
             images: [{ format: "png", source: { bytes: hugeImage } }],
           },
         },
@@ -312,10 +302,11 @@ describe("Feature 6: History Management", () => {
         userEntry("what did you see?"),
         assistantEntry("A cat"),
       ];
-      const result = truncateHistory(h, HISTORY_LIMIT);
+      const result = prepareHistory(h);
       const resultSize = JSON.stringify(result).length;
+      expect(() => assertHistoryWithinLimit(result, HISTORY_LIMIT)).not.toThrow();
       expect(resultSize).toBeLessThanOrEqual(HISTORY_LIMIT);
-      // Should still have entries (not wiped out)
+      expect(result[0].userInputMessage?.images).toBeUndefined();
       expect(result.length).toBeGreaterThan(0);
     });
   });
