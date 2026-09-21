@@ -107,6 +107,9 @@ export function toKiroToolUseId(toolUseId: string): string {
 export function normalizeMessages(messages: KiroInputMessage[]): Message[] {
   return messages
     .filter((msg) => {
+      // Kiro cannot represent system turns in its alternating history. The
+      // stream replays their prompt and tool state separately.
+      if (msg.role === "system") return false;
       if (msg.role !== "assistant") return true;
       const am = msg as AssistantMessage;
       return am.stopReason !== "error" && am.stopReason !== "aborted";

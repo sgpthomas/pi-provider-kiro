@@ -45,9 +45,9 @@
     "js-tiktoken": "^1.0.21"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.80.10",
-    "@earendil-works/pi-coding-agent": ">=0.80.10",
-    "@earendil-works/pi-tui": ">=0.80.10"
+    "@earendil-works/pi-ai": ">=0.86.0",
+    "@earendil-works/pi-coding-agent": ">=0.86.0",
+    "@earendil-works/pi-tui": ">=0.86.0"
   },
   "peerDependenciesMeta": {
     "@earendil-works/pi-ai": {
@@ -62,9 +62,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
-    "@earendil-works/pi-ai": "0.80.10",
-    "@earendil-works/pi-coding-agent": "0.80.10",
-    "@earendil-works/pi-tui": "0.80.10",
+    "@earendil-works/pi-ai": "0.86.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@earendil-works/pi-tui": "0.86.1",
     "@smithy/types": "^4.17.2",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"

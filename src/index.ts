@@ -59,9 +59,10 @@ export {
   type KiroUserInputMessage,
 } from "./transform.js";
 
-type KiroRefreshModelsContext = Omit<RefreshModelsContext, "credential" | "store"> & {
+// Catalog persistence uses this provider's file cache, so the host's
+// stored/publish fields do not need provider-specific widening.
+type KiroRefreshModelsContext = Omit<RefreshModelsContext, "credential"> & {
   credential?: RefreshModelsContext["credential"] | KiroCredentials;
-  store?: RefreshModelsContext["store"];
 };
 
 type KiroRefreshCredential = KiroRefreshModelsContext["credential"];
@@ -88,7 +89,8 @@ function credentialRegion(credential: KiroRefreshCredential): string {
 
 async function refreshCatalog(
   credential: KiroRefreshCredential,
-  context: Pick<KiroRefreshModelsContext, "allowNetwork" | "force" | "signal">,
+  // Startup discovery has no host-provided abort signal.
+  context: { allowNetwork: boolean; force?: boolean; signal?: AbortSignal },
 ): Promise<KiroModel[]> {
   const oauthCredential = credential && "access" in credential ? (credential as KiroCredentials) : undefined;
   const apiKey =

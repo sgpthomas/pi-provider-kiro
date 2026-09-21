@@ -1,10 +1,20 @@
 import type { Api, AssistantMessage, AssistantMessageEvent, Context, Model } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { isContextOverflow } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import { extractKiroReasonCode, KiroApiError, parseRetryAfterMs } from "../src/errors.js";
 import { capacityRetryConfig } from "../src/retry.js";
-import { resetProfileArnCache, streamKiro } from "../src/stream.js";
+import { resetProfileArnCache, streamKiro as streamKiroRaw } from "../src/stream.js";
 import { concatMessages, encodeEventMessage } from "./helpers/event-stream.js";
+
+// pi 0.86 providers receive a normalized TranscriptContext; the host runs
+// `normalizeContext()` first. Normalize at the boundary so these tests keep
+// using the ergonomic Context shape.
+const streamKiro = (
+  model: Parameters<typeof streamKiroRaw>[0],
+  context: Context,
+  options?: Parameters<typeof streamKiroRaw>[2],
+) => streamKiroRaw(model, normalizeContext(context), options);
 
 type TestKiroModel = Model<Api> & { kiroProfileArn?: string };
 

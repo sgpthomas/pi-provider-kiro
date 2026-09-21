@@ -209,6 +209,13 @@ describe("Feature 2: Model Definitions", () => {
       expect(opus?.contextWindow).not.toBe(kiroModels.find((model) => model.id === opus?.id)?.contextWindow);
     });
 
+    it("keeps version dots in the generated name for a dynamic model outside the bootstrap list (upstream c5c10b7)", () => {
+      const [dynamic] = mapKiroCatalogModels([{ modelId: "openai-gpt-5.7" }], TEST_REGION);
+      expect(dynamic.id).toBe("openai-gpt-5-7");
+      expect(dynamic.kiroModelId).toBe("openai-gpt-5.7");
+      expect(dynamic.name).toBe("Openai Gpt 5.7");
+    });
+
     it("disables text tool-call recovery only for Claude catalog models", () => {
       const claudeModels = mapped.filter((model) => model.id.startsWith("claude-"));
       const nonClaudeModels = mapped.filter((model) => !model.id.startsWith("claude-"));

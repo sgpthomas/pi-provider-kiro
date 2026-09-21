@@ -9,16 +9,18 @@ import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
-  Context,
   ImageContent,
+  JsonObject,
   Model,
   SimpleStreamOptions,
   TextContent,
   ThinkingContent,
   ToolCall,
   ToolResultMessage,
+  TranscriptContext,
 } from "@earendil-works/pi-ai";
 import * as PiAi from "@earendil-works/pi-ai";
+import { getCurrentSystemPrompt, getCurrentTools, withoutInitialSystemMessage } from "@earendil-works/pi-ai";
 import { UniversalEventStreamMarshaller } from "@smithy/core/event-streams";
 import type { Message } from "@smithy/types";
 import { parseBracketToolCalls } from "./bracket-tool-parser.js";
@@ -365,9 +367,9 @@ function emitToolCall(
     state.input = "{}";
   }
 
-  let args: Record<string, unknown>;
+  let args: JsonObject;
   try {
-    args = JSON.parse(state.input) as Record<string, unknown>;
+    args = JSON.parse(state.input) as JsonObject;
   } catch (e) {
     // Returning false drops the call: nothing is pushed into `output.content`,
     // so the call the model made never reaches the agent. Callers record the
@@ -390,7 +392,7 @@ function emitToolCall(
 
 export function streamKiro(
   model: Model<Api>,
-  context: Context,
+  context: TranscriptContext,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   // pi-ai's barrel re-exports the class as type-only before the runtime class re-export, so
@@ -480,6 +482,11 @@ export function streamKiro(
         options?.reasoning,
       );
       const thinkingEnabled = !!options?.reasoning || model.reasoning;
+      // Providers receive prompt and tool state through transcript system
+      // messages. Kiro cannot represent those messages directly, so replay the
+      // current state and keep system turns out of its alternating history.
+      const currentSystemPrompt = getCurrentSystemPrompt(context.messages);
+      const currentTools = getCurrentTools(context.messages);
       debugLog("request.init", {
         endpoint,
         model: model.id,
@@ -488,12 +495,12 @@ export function streamKiro(
         thinkingEnabled,
         reasoning: options?.reasoning,
         messageCount: context.messages.length,
-        toolCount: context.tools?.length ?? 0,
-        hasSystemPrompt: !!context.systemPrompt,
+        toolCount: currentTools.length,
+        hasSystemPrompt: !!currentSystemPrompt,
         profileArn,
         sessionId: options?.sessionId,
       });
-      let systemPrompt = context.systemPrompt ?? "";
+      let systemPrompt = currentSystemPrompt;
       // Kiro's runtime endpoint honors structured effort but only exposes Claude's
       // user-visible thinking stream when the legacy thinking markers are also
       // present. Keep both controls: structured fields select effort, while these
@@ -563,7 +570,9 @@ export function streamKiro(
         // pairs POSITIONALLY, so without this pass the displaced result's issuing
         // assistant is dropped and the real tool output is discarded. Pure
         // reorder — see `relocateDisplacedToolResults`.
-        const normalized = relocateDisplacedToolResults(normalizeMessages(context.messages));
+        const normalized = relocateDisplacedToolResults(
+          normalizeMessages(withoutInitialSystemMessage(context.messages)),
+        );
         const {
           history: rawHistory,
           systemPrepended,
@@ -688,7 +697,7 @@ export function streamKiro(
         // declares no current tools is rejected by Kiro as "Improperly formed
         // request" because history references toolUses with no tool catalog.
         let uimc: { toolResults?: KiroToolResult[]; tools?: KiroToolSpec[] } | undefined;
-        const baseTools = context.tools?.length ? convertToolsToKiro(context.tools) : [];
+        const baseTools = currentTools.length ? convertToolsToKiro(currentTools) : [];
         const finalTools = history.length > 0 ? addPlaceholderTools(baseTools, history) : baseTools;
         if (currentToolResults.length > 0 || finalTools.length > 0) {
           uimc = {};
@@ -1156,21 +1165,33 @@ export function streamKiro(
           try {
             if (!gotFirstToken) {
               const readPromise = iterator.next();
-              const result = await Promise.race([
-                readPromise,
-                new Promise<typeof FIRST_TOKEN_SENTINEL>((resolve) =>
-                  setTimeout(() => resolve(FIRST_TOKEN_SENTINEL), firstTokenTimeoutForModel(model.id)),
-                ),
-              ]);
-              if (result === FIRST_TOKEN_SENTINEL) {
-                readPromise.catch(() => {}); // suppress dangling rejection
-                void bodyReader.cancel().catch(() => {});
-                firstTokenTimedOut = true;
-                break;
+              let firstTokenTimer: ReturnType<typeof setTimeout> | undefined;
+              try {
+                const result = await Promise.race([
+                  readPromise,
+                  new Promise<typeof FIRST_TOKEN_SENTINEL>((resolve) => {
+                    firstTokenTimer = setTimeout(
+                      () => resolve(FIRST_TOKEN_SENTINEL),
+                      firstTokenTimeoutForModel(model.id),
+                    );
+                  }),
+                ]);
+                if (result === FIRST_TOKEN_SENTINEL) {
+                  readPromise.catch(() => {}); // suppress dangling rejection
+                  void bodyReader.cancel().catch(() => {});
+                  firstTokenTimedOut = true;
+                  break;
+                }
+                iterResult = result as IteratorResult<Record<string, unknown>>;
+                gotFirstToken = true;
+                resetIdle();
+              } finally {
+                // The losing timeout branch of the race must not keep a ref'd
+                // timer alive until it fires: an uncleared 90 s handle holds
+                // the Node event loop open long after print-mode/SDK callers
+                // have finished their turn (#154).
+                if (firstTokenTimer !== undefined) clearTimeout(firstTokenTimer);
               }
-              iterResult = result as IteratorResult<Record<string, unknown>>;
-              gotFirstToken = true;
-              resetIdle();
             } else {
               iterResult = await iterator.next();
             }
@@ -1603,13 +1624,23 @@ export function streamKiro(
       // structured channel for exactly this ("provider/runtime diagnostics for
       // failures and recoveries").
       if (error instanceof KiroApiError) {
+        // pi 0.86 types diagnostic details as JsonObject. KiroProviderAttempts is
+        // a fixed-shape interface (no index signature), so rebuild it as a fresh
+        // JSON object literal rather than passing the interface value directly.
         PiAi.appendAssistantMessageDiagnostic(
           output,
           PiAi.createAssistantMessageDiagnostic("kiro_api_error", error, {
             status: error.status,
             ...(error.reasonCode !== undefined ? { reasonCode: error.reasonCode } : {}),
             ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
-            ...(error.providerAttempts !== undefined ? { providerAttempts: error.providerAttempts } : {}),
+            ...(error.providerAttempts !== undefined
+              ? {
+                  providerAttempts: {
+                    credentialRefresh: error.providerAttempts.credentialRefresh,
+                    capacity: error.providerAttempts.capacity,
+                  },
+                }
+              : {}),
           }),
         );
       }

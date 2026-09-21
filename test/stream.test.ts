@@ -8,12 +8,13 @@ import type {
   TextContent,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import { isContextOverflow, isRetryableAssistantError } from "@earendil-works/pi-ai/compat";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { findJsonEnd } from "../src/bracket-tool-parser.js";
 import { validateKiroConversation, validateKiroToolStructure } from "../src/history-validator.js";
 import { capacityRetryConfig, retryConfig } from "../src/retry.js";
-import { resetProfileArnCache, streamKiro } from "../src/stream.js";
+import { resetProfileArnCache, streamKiro as streamKiroRaw } from "../src/stream.js";
 import { EMPTY_CONTENT_PLACEHOLDER, type KiroHistoryEntry } from "../src/transform.js";
 import {
   concatMessages,
@@ -23,6 +24,16 @@ import {
   encodeRawExceptionMessage,
 } from "./helpers/event-stream.js";
 import { RECORD_279_COMMAND, RECORD_279_SUMMARY, RECORD_279_TEXT } from "./helpers/invoke-fixture.js";
+
+// pi 0.86 hands providers a normalized TranscriptContext. The real host runs
+// `normalizeContext()` before dispatch, so these tests build the ergonomic
+// `Context` shape (systemPrompt/tools/messages) and normalize at the call
+// boundary — exercising the same transcript replay the provider sees in prod.
+const streamKiro = (
+  model: Parameters<typeof streamKiroRaw>[0],
+  context: Context,
+  options?: Parameters<typeof streamKiroRaw>[2],
+) => streamKiroRaw(model, normalizeContext(context), options);
 
 const ts = Date.now();
 const zeroUsage = {
@@ -3064,6 +3075,24 @@ describe("Feature 9: Streaming Integration", () => {
   // First-token timeout (Task 1.2)
   // =========================================================================
 
+  it("clears the first-token timeout timer once the first token arrives (upstream ef72fc8, #154)", async () => {
+    vi.useFakeTimers();
+    const originalTimeout = retryConfig.firstTokenTimeoutMs;
+    retryConfig.firstTokenTimeoutMs = 60_000;
+    const fetchMock = mockFetchOk('{"content":"ok"}{"contextUsagePercentage":5}');
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const events = await collect(streamKiro(makeModel(), makeContext(), { apiKey: "test" }));
+      expect(events.find((event) => event.type === "done")).toBeDefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      retryConfig.firstTokenTimeoutMs = originalTimeout;
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("retries when first token times out then succeeds on second attempt", async () => {
     const originalTimeout = retryConfig.firstTokenTimeoutMs;
     retryConfig.firstTokenTimeoutMs = 100;
@@ -5995,4 +6024,84 @@ describe("Feature 9: Streaming Integration", () => {
       vi.unstubAllGlobals();
     });
   }
+});
+
+describe("Feature 9: pi 0.86 transcript context", () => {
+  beforeEach(() => {
+    // Mark profileArn as already resolved so tests don't see an extra fetch.
+    resetProfileArnCache(true);
+  });
+
+  const toolDef = {
+    name: "grep",
+    description: "Search files",
+    parameters: { type: "object", properties: { pattern: { type: "string" } } },
+  };
+
+  const bodyOf = (fetchMock: ReturnType<typeof vi.fn>) => JSON.parse(fetchMock.mock.calls[0][1].body);
+
+  it("replays a transcript system message so its prompt and tools reach Kiro", async () => {
+    const context: Context = {
+      messages: [
+        { role: "system", content: "TRANSCRIPT_SYSTEM_MARKER", toolsAdded: [toolDef], timestamp: ts },
+        { role: "user", content: "hello", timestamp: ts },
+      ],
+    };
+    const fetchMock = mockFetchOk('{"content":"hi"}{"contextUsagePercentage":3}');
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collect(streamKiro(makeModel(), context, { apiKey: "tok" }));
+    expect(events.find((e) => e.type === "done")).toBeDefined();
+
+    const body = bodyOf(fetchMock);
+    const current = body.conversationState.currentMessage.userInputMessage;
+    expect(current.content).toContain("TRANSCRIPT_SYSTEM_MARKER");
+    const toolNames = (current.userInputMessageContext?.tools ?? []).map(
+      (t: { toolSpecification: { name: string } }) => t.toolSpecification.name,
+    );
+    expect(toolNames).toContain("grep");
+    expect(body.conversationState.history ?? []).toEqual([]);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps transcript system messages out of Kiro history and replays a later system update", async () => {
+    const assistant: AssistantMessage = {
+      role: "assistant",
+      content: [{ type: "text", text: "first-answer" }],
+      api: "kiro-api",
+      provider: "kiro",
+      model: "claude-sonnet-4-5",
+      usage: zeroUsage,
+      stopReason: "stop",
+      timestamp: ts,
+    };
+    const context: Context = {
+      messages: [
+        { role: "system", content: "BASE_SYS", toolsAdded: [toolDef], timestamp: ts },
+        { role: "user", content: "first-question", timestamp: ts },
+        assistant,
+        { role: "system", content: "EXTRA_SYS", timestamp: ts },
+        { role: "user", content: "second-question", timestamp: ts },
+      ],
+    };
+    const fetchMock = mockFetchOk('{"content":"ok"}{"contextUsagePercentage":4}');
+    vi.stubGlobal("fetch", fetchMock);
+
+    const events = await collect(streamKiro(makeModel(), context, { apiKey: "tok" }));
+    expect(events.find((e) => e.type === "done")).toBeDefined();
+
+    const body = bodyOf(fetchMock);
+    const history: Array<{ userInputMessage?: { content: string } }> = body.conversationState.history ?? [];
+    const userTurns = history.filter((e) => e.userInputMessage).map((e) => e.userInputMessage?.content ?? "");
+    expect(userTurns.some((c) => c === "BASE_SYS" || c === "EXTRA_SYS")).toBe(false);
+    const wire = JSON.stringify(body);
+    expect(wire).toContain("BASE_SYS");
+    expect(wire).toContain("EXTRA_SYS");
+    expect(wire).toContain("first-question");
+    expect(wire).toContain("first-answer");
+    expect(body.conversationState.currentMessage.userInputMessage.content).toContain("second-question");
+
+    vi.unstubAllGlobals();
+  });
 });

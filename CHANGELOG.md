@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Resolve `ksk_` API key profiles through GetProfile instead of ListAvailableProfiles, which returns 403 Unsupported token type. Catalog queries then use that ARN in us-east-1. `KIRO_PROFILE_ARN` still wins.
+- Migrate the stream provider to the pi 0.86 normalized `TranscriptContext`. The system prompt and tool declarations now arrive as the transcript's system messages instead of `context.systemPrompt` / `context.tools`; the provider replays them with the exported pi-ai helpers (`getCurrentSystemPrompt`, `getCurrentTools`) so the current prompt and tool state still reach Kiro, and system messages are kept out of ordinary (alternating) Kiro history via `withoutInitialSystemMessage` plus a defensive `system`-role filter in `normalizeMessages`. Also adapts to the pi 0.86 type API: `RefreshModelsContext` dropped `store` (now `stored`/`publish`, with a required `signal`), `ToolCall.arguments` and diagnostic details are typed `JsonObject`, and `ProviderModelsStore` was removed.
+
+- Clear the first-token timeout timer once the race is decided (ported from upstream ef72fc8). The losing `setTimeout` of the first-token `Promise.race` was never cleared, so every completed request kept a ref'd 90 s timer pending that held the Node event loop open — `pi -p` and SDK embeds sat idle for up to 90 s after the answer printed.
+
+- Keep version dots in generated display names for catalog models missing from the bootstrap list (ported from upstream c5c10b7). The name was derived from the pi ID, where `toPiModelId` had already rewritten `5.7` as `5-7`, so a catalog-only `openai-gpt-5.7` rendered as "Openai Gpt 5 7"; it now reads "Openai Gpt 5.7".
 
 - Preserve canonical `developer` messages emitted by newer Pi-compatible hosts by lowering them to Kiro user input. Agent reminders and advisories previously degraded to the neutral `"Please proceed with the task."` placeholder when current, and disappeared from historical context entirely.
 
