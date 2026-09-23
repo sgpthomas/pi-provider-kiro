@@ -62,7 +62,11 @@ describe("published package surface", () => {
     expect(pkg.pi?.extensions).toEqual(["./dist/index.js"]);
   });
 
-  it("emits declarations alongside the bundle", () => {
+  it("builds the runtime bundle during a production-only install", () => {
+    expect(pkg.scripts.prepare).toBe("npm run build:bundle");
+    expect(pkg.scripts["build:bundle"]).toContain("esbuild ");
+    expect(pkg.scripts.prepare).not.toContain("tsc");
+    expect(pkg.scripts.prepack).toContain("tsc --emitDeclarationOnly");
     expect(pkg.scripts.build).toContain("tsc --emitDeclarationOnly");
   });
 
@@ -74,9 +78,9 @@ describe("published package surface", () => {
   // a stream is actually opened. Nothing else catches that: the suite runs from
   // src, never from dist.
   it("gives the bundled CJS graph a real require", () => {
-    expect(pkg.scripts.build).toContain("--banner:js=");
-    expect(pkg.scripts.build).toMatch(/createRequire[^"]*from\s*'node:module'/);
-    expect(pkg.scripts.build).toMatch(/\brequire\s*=\s*\w*[cC]reateRequire\(import\.meta\.url\)/);
+    expect(pkg.scripts["build:bundle"]).toContain("--banner:js=");
+    expect(pkg.scripts["build:bundle"]).toMatch(/createRequire[^"]*from\s*'node:module'/);
+    expect(pkg.scripts["build:bundle"]).toMatch(/\brequire\s*=\s*\w*[cC]reateRequire\(import\.meta\.url\)/);
   });
 
   // The bundle keeps pi's packages external, so they must be resolvable in the
@@ -100,7 +104,7 @@ describe("published package surface", () => {
 
   it("keeps pi's packages external so the host's own copy is used", () => {
     for (const specifier of Object.keys(pkg.peerDependencies ?? {})) {
-      expect(pkg.scripts.build).toContain(`--external:${specifier}`);
+      expect(pkg.scripts["build:bundle"]).toContain(`--external:${specifier}`);
     }
   });
 });

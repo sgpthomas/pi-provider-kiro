@@ -24,14 +24,16 @@
     "README.md"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire as __kiroCreateRequire}from'node:module';const require=__kiroCreateRequire(import.meta.url);\" --external:@earendil-works/pi-ai --external:@earendil-works/pi-coding-agent --external:@earendil-works/pi-tui && tsc --emitDeclarationOnly",
+    "build:bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --banner:js=\"import{createRequire as __kiroCreateRequire}from'node:module';const require=__kiroCreateRequire(import.meta.url);\" --external:@earendil-works/pi-ai --external:@earendil-works/pi-coding-agent --external:@earendil-works/pi-tui",
+    "build": "npm run build:bundle && tsc --emitDeclarationOnly",
     "check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepare": "npm run build",
+    "prepare": "npm run build:bundle",
+    "prepack": "tsc --emitDeclarationOnly",
     "prepublishOnly": "npm run check && npm run build"
   },
   "pi": {
